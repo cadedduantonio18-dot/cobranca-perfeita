@@ -501,7 +501,7 @@
     <ul class="how">
       <li><kbd>Mouse</kbd> mira no gol</li>
       <li><kbd>Segure o clique</kbd> (ou <kbd>Espaço</kbd>) pra carregar a força — solte na hora certa</li>
-      <li><kbd>A</kbd> / <kbd>D</kbd>, setas ou roda do mouse: efeito na bola (curva)</li>
+      <li><kbd>A</kbd> / <kbd>D</kbd>: efeito na bola — <kbd>A</kbd> curva pra esquerda, <kbd>D</kbd> pra direita</li>
       <li>Força no vermelho = isolou! Na falta, chute mais leve pra passar por cima da barreira</li>
       <li>No gol (1 contra 1 e Só defesa): mire e clique pra pular — só dá pra pular uma vez</li>
       <li>⚡ Jogada: <kbd>WASD</kbd> corre com a bola, <kbd>Shift</kbd> arranca, <kbd>E</kbd> ou botão direito passa pro companheiro marcado, segure o clique pra chutar</li>
@@ -2986,7 +2986,7 @@ const pointerEnd = () => { locker.drag = null; if (game.dcharge) { game.dcharge 
 cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('pointerup', pointerEnd);
 cv.addEventListener('pointercancel', pointerEnd);
-cv.addEventListener('wheel', e => { e.preventDefault(); if (canAim()) addCurve(e.deltaY > 0 ? 1 : -1); }, { passive: false });
+cv.addEventListener('wheel', e => e.preventDefault(), { passive: false });
 const addCurve = s => { game.curve = clamp(Math.round((game.curve + s * 0.25) * 4) / 4, -1, 1); };
 for (const [id, s] of [['cl', -1], ['cr', 1]]) $(id).addEventListener('pointerdown', e => { e.stopPropagation(); if (canAim()) addCurve(s); });
 addEventListener('keydown', e => {
@@ -3002,8 +3002,8 @@ addEventListener('keydown', e => {
   if (e.key === ' ' && canDive()) { audio(); playerDive(); e.preventDefault(); return; }
   if (!canAim()) return;
   const k = e.key.toLowerCase();
-  if (k === 'a' || k === 'arrowleft') addCurve(-1);
-  else if (k === 'd' || k === 'arrowright') addCurve(1);
+  if (k === 'a') addCurve(-1);
+  else if (k === 'd') addCurve(1);
   else if (k === ' ' && !e.repeat) { audio(); startCharge(); e.preventDefault(); }
 });
 addEventListener('keyup', e => {

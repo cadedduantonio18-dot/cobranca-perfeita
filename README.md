@@ -22,7 +22,7 @@ Personalize o jogador com moedas ganhas nas partidas: uniformes (inclusive listr
 |---|---|
 | Mirar | Mouse (ou toque) |
 | Carregar a força | Segurar o clique ou `Espaço` — solte na hora certa |
-| Efeito (curva) | `A` / `D`, setas ou roda do mouse |
+| Efeito (curva) | `A` (esquerda) / `D` (direita) |
 | Pular no gol (1 contra 1) | Mirar e clicar (ou `Espaço`) |
 | Jogada 3x3 | `WASD` corre, `Shift` arranca, `E` ou botão direito passa, segure o clique pra chutar |
 | Menu | `Esc` |
