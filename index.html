@@ -300,6 +300,9 @@
     .bar .zone { height: 15px; }
   }
 
+  /* celular: desfoque por cima do 3D é caro */
+  body.lite * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+
   /* ---------- lobby: acabamento ---------- */
   .lobby { --disp: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif; }
   .lobby::before { content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -604,8 +607,11 @@ const $ = id => document.getElementById(id);
 // ---------- renderer / cena ----------
 // celular: menos pixels e menos grama pra rodar liso
 const MOBILE = matchMedia('(pointer: coarse)').matches || Math.min(screen.width, screen.height) < 700;
-const renderer = new THREE.WebGLRenderer({ antialias: !MOBILE || (devicePixelRatio || 1) < 2 });
-renderer.setPixelRatio(Math.min(MOBILE ? 1.5 : 2, devicePixelRatio || 1));
+const renderer = new THREE.WebGLRenderer({ antialias: !MOBILE || (devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
+const MAX_DPR = Math.min(MOBILE ? 1.5 : 2, devicePixelRatio || 1);
+renderer.setPixelRatio(MAX_DPR);
+if (MOBILE) document.body.classList.add('lite');
+let grassBlades = null;
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -809,7 +815,7 @@ const bladeMat = new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.Do
   const blades = new THREE.InstancedMesh(geo, bladeMat, items.length);
   items.forEach(([mm, col], i) => { blades.setMatrixAt(i, mm); blades.setColorAt(i, c.setHex(col)); });
   blades.receiveShadow = true; blades.frustumCulled = false;
-  scene.add(blades);
+  scene.add(blades); grassBlades = blades;
 }
 
 // ---------- gol + rede ----------
@@ -876,7 +882,9 @@ const crowdCheer = v => { crowd.excite = Math.max(crowd.excite, v); };
   const fans = [], q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), scl = new THREE.Vector3();
   const SHIRTS = [0x1d4ed8, 0x1d4ed8, 0x2563eb, 0xf5f5f5, 0xf5f5f5, 0xdc2626, 0xfacc15, 0x16a34a, 0x111827, 0xea580c, 0x7c3aed, 0x0ea5e9, 0x9ca3af];
   const SKIN_T = [0xf1c7a3, 0xe0ac86, 0xc68a5e, 0x9a6440, 0x6b4430];
+  let si = -1;
   for (const [s, density] of stands) {
+    si++;
     s.updateMatrixWorld(true);
     const w = s.userData.width, cols = Math.floor(w / 0.62);
     for (let r = 0; r < ROWS; r++) for (let c = 0; c < cols; c++) {
@@ -886,7 +894,7 @@ const crowdCheer = v => { crowd.excite = Math.max(crowd.excite, v); };
       pos.applyMatrix4(s.matrixWorld);
       const sc = rand(.9, 1.1);
       q.setFromAxisAngle(up, s.rotation.y + rand(-.35, .35));
-      fans.push({ m: new THREE.Matrix4().compose(pos.clone(), q.clone(), scl.set(sc, sc, sc)), shirt: SHIRTS[Math.random() * SHIRTS.length | 0], skin: SKIN_T[Math.random() * SKIN_T.length | 0] });
+      fans.push({ si, m: new THREE.Matrix4().compose(pos.clone(), q.clone(), scl.set(sc, sc, sc)), shirt: SHIRTS[Math.random() * SHIRTS.length | 0], skin: SKIN_T[Math.random() * SKIN_T.length | 0] });
     }
   }
   const N = fans.length, phase = new Float32Array(N);
@@ -907,9 +915,10 @@ const crowdCheer = v => { crowd.excite = Math.max(crowd.excite, v); };
     m.customProgramCacheKey = () => isArm ? 'crowd-arm' : 'crowd';
     return m;
   };
-  const body = new THREE.CylinderGeometry(0.2, 0.16, 0.62, 6, 1, false); body.translate(0, 0.42, 0);
-  const head = new THREE.SphereGeometry(0.105, 6, 4); head.translate(0, 0.86, 0);
-  const armL = new THREE.CylinderGeometry(0.045, 0.04, 0.5, 4, 1, true); armL.translate(-0.235, 0.45, 0);
+  // poucos lados: de longe não dá pra ver, e são milhares de cópias
+  const body = new THREE.CylinderGeometry(0.2, 0.16, 0.62, 5, 1, true); body.translate(0, 0.42, 0);
+  const head = new THREE.SphereGeometry(0.105, 5, 3); head.translate(0, 0.86, 0);
+  const armL = new THREE.CylinderGeometry(0.045, 0.04, 0.5, 3, 1, true); armL.translate(-0.235, 0.45, 0);
   const armR = armL.clone(); armR.translate(0.47, 0, 0);
   const arms = new THREE.BufferGeometry();
   { // junta os dois braços numa geometria só
@@ -920,13 +929,22 @@ const crowdCheer = v => { crowd.excite = Math.max(crowd.excite, v); };
     }
   }
   const color = new THREE.Color();
-  for (const [geo, isArm, pick] of [[body, false, f => f.shirt], [head, false, f => f.skin], [arms, true, f => f.skin]]) {
-    geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phase, 1));
-    const mesh = new THREE.InstancedMesh(geo, crowdMat(isArm), N);
-    fans.forEach((f, i) => { mesh.setMatrixAt(i, f.m); mesh.setColorAt(i, color.setHex(pick(f)).multiplyScalar(rand(.8, 1.08))); });
-    mesh.frustumCulled = false; // a animação mexe nos vértices; a torcida inteira é sempre parte do fundo
-    scene.add(mesh);
-  }
+  // um conjunto de malhas por arquibancada: a que fica fora da câmera nem é desenhada
+  const mats = [crowdMat(false), crowdMat(false), crowdMat(true)];
+  stands.forEach((_, k) => {
+    const group = fans.filter(f => f.si === k);
+    if (!group.length) return;
+    const ph = new Float32Array(group.length).map(() => Math.random());
+    [[body, f => f.shirt], [head, f => f.skin], [arms, f => f.skin]].forEach(([base, pick], j) => {
+      const geo = base.clone();
+      geo.setAttribute('aPhase', new THREE.InstancedBufferAttribute(ph, 1));
+      const mesh = new THREE.InstancedMesh(geo, mats[j], group.length);
+      group.forEach((f, i) => { mesh.setMatrixAt(i, f.m); mesh.setColorAt(i, color.setHex(pick(f)).multiplyScalar(rand(.8, 1.08))); });
+      mesh.computeBoundingSphere(); mesh.boundingSphere.radius += 2; // folga pros pulos e braços animados no shader
+      mesh.matrixAutoUpdate = false;
+      scene.add(mesh);
+    });
+  });
 }
 
 const adTex = canvasTex(2048, 64, (g, w, h) => {
@@ -1177,7 +1195,11 @@ function makePlayer({ shirt, shorts, socks, keeper = false, number = '', skin, h
   const mBoot = std(boots, { roughness: gold ? .3 : .4, metalness: gold ? .7 : 0 }), mSole = std(0xf2f2f2), mDark = std(0x111111);
   const mAccent = std(isLight(boots) ? 0x1f2937 : 0xf5f5f5, { roughness: .5 }); // detalhe da chuteira
   const add = (geo, mat, x, y, z, parent = g) => {
-    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m;
+    const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); parent.add(m);
+    // peças pequenas (nariz, orelha, travas...) não mudam a sombra e custam um desenho a mais cada
+    if (!geo.boundingSphere) geo.computeBoundingSphere();
+    m.castShadow = geo.boundingSphere.radius > 0.07;
+    return m;
   };
   // cilindro afunilado pendurado a partir de yTop (para membros)
   const limb = (rt, rb, len, mat, parent, yTop = 0) => add(taperGeo(rt, rb, len), mat, 0, yTop - len / 2, 0, parent);
@@ -3148,9 +3170,32 @@ function update(dt) {
   updateHudLive();
 }
 
+// qualidade automática: se o jogo ficar abaixo de ~45 quadros por segundo, baixa a resolução aos poucos
+// e, no último degrau, tira sombras e grama em relevo; se sobrar folga, sobe de volta
+const QUALITY = [1, 0.85, 0.7, 0.58, 0.58].map(k => Math.max(0.6, MAX_DPR * k));
+const quality = { level: 0, t: 0, frames: 0, good: 0, drops: 0, warm: 3 };
+function setQuality(l) {
+  quality.level = l;
+  renderer.setPixelRatio(QUALITY[l]);
+  const low = l === QUALITY.length - 1;
+  if (renderer.shadowMap.enabled === low) { renderer.shadowMap.enabled = !low; scene.traverse(o => { if (o.material) [].concat(o.material).forEach(m => m.needsUpdate = true); }); }
+  if (grassBlades) grassBlades.visible = !low;
+}
+function watchQuality(raw) {
+  if (raw > 0.25) { quality.t = quality.frames = 0; return; } // aba voltou do fundo: ignora
+  if (quality.warm > 0) { quality.warm -= raw; return; } // carregando: os primeiros segundos não contam
+  quality.t += raw; quality.frames++;
+  if (quality.t < 1.5) return;
+  const fps = quality.frames / quality.t; quality.t = quality.frames = 0;
+  if (fps < 45 && quality.level < QUALITY.length - 1) { setQuality(quality.level + 1); quality.good = 0; quality.drops++; }
+  else if (fps > 57 && quality.level > 0 && quality.drops < 3 && ++quality.good >= 6) { setQuality(quality.level - 1); quality.good = 0; }
+  else if (fps <= 57) quality.good = 0;
+}
+
 let last = performance.now();
 renderer.setAnimationLoop(now => {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
+  watchQuality(raw);
   update(dt);
   renderer.render(scene, camera);
 });
